@@ -10,17 +10,25 @@ from __future__ import annotations
 
 import json
 import os
+from typing import TYPE_CHECKING
 
-import httpx
 import pytest
 
-from agent_env_core.browser.flare_solverr import (
+# Skip the entire module when httpx isn't installed (only needed for the
+# [flare-solverr] extra). This keeps the test runnable for users who install
+# just [terminal], [browser], or [desktop] extras.
+httpx = pytest.importorskip("httpx")
+
+if TYPE_CHECKING:
+    import httpx as _httpx_typing  # noqa: F401 — used in type annotations only
+
+from agent_env_core.browser.flare_solverr import (  # noqa: E402
     FlareSolverrClient,
     FlareSolverrCookie,
     FlareSolverrError,
     FlareSolverrSolution,
 )
-from agent_env_core.exceptions import TimeoutExceededError
+from agent_env_core.exceptions import TimeoutExceededError  # noqa: E402
 
 # Note: we deliberately do NOT use a module-level `pytestmark =
 # pytest.mark.flare_solverr` here because pytest evaluates module-level

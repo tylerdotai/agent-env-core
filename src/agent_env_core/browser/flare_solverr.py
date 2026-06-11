@@ -15,9 +15,7 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass, field
-from typing import Any, cast
-
-import httpx
+from typing import TYPE_CHECKING, Any, cast
 
 from ..exceptions import (
     AgentEnvCoreError,
@@ -25,7 +23,28 @@ from ..exceptions import (
     TimeoutExceededError,
 )
 
+if TYPE_CHECKING:
+    import httpx
+
 LOGGER = logging.getLogger(__name__)
+
+
+def _require_httpx() -> Any:
+    """Lazy-import httpx so this module is importable without the optional extra.
+
+    The FlareSolverr client is opt-in; importing httpx at module load would force
+    every user to install the [flare-solverr] extra even if they never call into
+    the Cloudflare bypass path. The cost is one extra lookup at the call site.
+    """
+    try:
+        import httpx as _httpx
+    except ImportError as exc:
+        raise DependencyMissingError(
+            "FlareSolverr integration requires httpx.",
+            "Install agent-env-core[flare-solverr] to use the Cloudflare bypass.",
+        ) from exc
+    return _httpx
+
 
 DEFAULT_BASE_URL = "http://localhost:8191"
 DEFAULT_TIMEOUT_MS = 60_000
@@ -129,6 +148,7 @@ class FlareSolverrClient:
         self._http: httpx.AsyncClient | None = None
 
     async def __aenter__(self) -> FlareSolverrClient:
+        httpx = _require_httpx()
         self._http = httpx.AsyncClient(
             base_url=self._base_url,
             timeout=self._timeout_sec,
@@ -146,6 +166,7 @@ class FlareSolverrClient:
                 "FlareSolverrClient must be used as an async context manager.",
                 "Use 'async with FlareSolverrClient() as c:'.",
             )
+        httpx = _require_httpx()
         try:
             response = await self._http.post("/v1", json=payload)
         except httpx.ConnectError as exc:
@@ -174,6 +195,7 @@ class FlareSolverrClient:
                 "FlareSolverrClient must be used as an async context manager.",
                 "Use 'async with FlareSolverrClient() as c:'.",
             )
+        httpx = _require_httpx()
         try:
             resp = await self._http.get("/health", timeout=5.0)
         except (httpx.ConnectError, httpx.TimeoutException):

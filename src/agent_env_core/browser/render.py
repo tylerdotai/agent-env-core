@@ -1,7 +1,7 @@
 """Async browser navigate and render tool."""
 
 import os
-from typing import Literal
+from typing import Any, Literal, cast
 from urllib.parse import urlparse
 
 from agent_env_core.exceptions import (
@@ -82,7 +82,7 @@ async def browser_navigate_and_render(url: str) -> Response:
                     )
                     if flaresolverr_solution.cookies:
                         playwright_cookies = flaresolverr_solution.to_playwright_cookies()
-                        await context.add_cookies(playwright_cookies)  # type: ignore[arg-type]
+                        await context.add_cookies(cast("Any", playwright_cookies))
                     page = await context.new_page()
                 else:
                     page = await browser.new_page()
