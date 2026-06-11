@@ -69,8 +69,9 @@ line-length = 100
 target-version = "py311"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "ASYNC", "ANN"]
-ignore = ["ANN401"]
+select = ["E", "F", "I", "UP", "B", "ASYNC"]
+# Test files don't need argument/return annotations — that signal is noise there.
+# We also don't want a blanket ban on `Any` (mypy strict handles that).
 
 [tool.mypy]
 python_version = "3.11"

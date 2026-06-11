@@ -1,7 +1,7 @@
 import pytest
 
-from agent_env_core.desktop.capture import desktop_capture_and_locate
 from agent_env_core.desktop import factory
+from agent_env_core.desktop.capture import desktop_capture_and_locate
 
 
 @pytest.mark.desktop

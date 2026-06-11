@@ -9,6 +9,7 @@ skipped by default.
 from __future__ import annotations
 
 import json
+import os
 
 import httpx
 import pytest
@@ -19,8 +20,7 @@ from agent_env_core.browser.flare_solverr import (
     FlareSolverrError,
     FlareSolverrSolution,
 )
-from agent_env_core.exceptions import DependencyMissingError, TimeoutExceededError
-
+from agent_env_core.exceptions import TimeoutExceededError
 
 # Note: we deliberately do NOT use a module-level `pytestmark =
 # pytest.mark.flare_solverr` here because pytest evaluates module-level
@@ -47,9 +47,16 @@ def test_solve_parses_cookies_and_user_agent():
         "status": 200,
         "userAgent": "Mozilla/5.0 (Test) Chrome/120.0",
         "cookies": [
-            {"name": "cf_clearance", "value": "abc123", "domain": ".example.com",
-             "path": "/", "httpOnly": True, "secure": True, "sameSite": "Lax",
-             "expires": 1900000000},
+            {
+                "name": "cf_clearance",
+                "value": "abc123",
+                "domain": ".example.com",
+                "path": "/",
+                "httpOnly": True,
+                "secure": True,
+                "sameSite": "Lax",
+                "expires": 1900000000,
+            },
             {"name": "session", "value": "xyz", "domain": ".example.com"},
         ],
         "headers": {"content-type": "text/html"},
@@ -100,7 +107,9 @@ def test_solve_raises_on_error_status():
         return _error_response("Challenge failed: timeout")
 
     client = FlareSolverrClient(base_url="http://fake:8191")
-    client._http = httpx.AsyncClient(base_url="http://fake:8191", transport=_mock_transport(handler))
+    client._http = httpx.AsyncClient(
+        base_url="http://fake:8191", transport=_mock_transport(handler)
+    )
 
     async def run() -> None:
         await client.solve("https://protected.example.com")
@@ -112,10 +121,10 @@ def test_solve_raises_on_error_status():
 def test_solve_raises_on_connection_error():
     """A ConnectError should produce a clear FlareSolverrError with recovery hint."""
     client = FlareSolverrClient(base_url="http://nonexistent:9999")
-    client._http = httpx.AsyncClient(base_url="http://nonexistent:9999",
-                                      transport=httpx.MockTransport(
-                                          lambda r: (_ for _ in ()).throw(
-                                              httpx.ConnectError("nope"))))
+    client._http = httpx.AsyncClient(
+        base_url="http://nonexistent:9999",
+        transport=httpx.MockTransport(lambda r: (_ for _ in ()).throw(httpx.ConnectError("nope"))),
+    )
 
     async def run() -> None:
         await client.solve("https://x")
@@ -128,10 +137,13 @@ def test_solve_raises_on_connection_error():
 def test_solve_raises_timeout_on_slow_response():
     """If httpx times out, we raise TimeoutExceededError with recovery hint."""
     client = FlareSolverrClient(base_url="http://fake:8191", timeout_sec=0.001)
-    client._http = httpx.AsyncClient(base_url="http://fake:8191", timeout=0.001,
-                                      transport=httpx.MockTransport(
-                                          lambda r: (_ for _ in ()).throw(
-                                              httpx.TimeoutException("slow"))))
+    client._http = httpx.AsyncClient(
+        base_url="http://fake:8191",
+        timeout=0.001,
+        transport=httpx.MockTransport(
+            lambda r: (_ for _ in ()).throw(httpx.TimeoutException("slow"))
+        ),
+    )
 
     async def run() -> None:
         await client.solve("https://x")
@@ -146,11 +158,14 @@ def test_solve_uses_session_when_provided():
 
     async def handler(request: httpx.Request) -> httpx.Response:
         captured["json"] = json.loads(request.content)
-        return _ok_response({"url": "https://x", "status": 200, "userAgent": "ua",
-                             "cookies": [], "headers": {}})
+        return _ok_response(
+            {"url": "https://x", "status": 200, "userAgent": "ua", "cookies": [], "headers": {}}
+        )
 
     client = FlareSolverrClient(base_url="http://fake:8191", session="sticky-1")
-    client._http = httpx.AsyncClient(base_url="http://fake:8191", transport=_mock_transport(handler))
+    client._http = httpx.AsyncClient(
+        base_url="http://fake:8191", transport=_mock_transport(handler)
+    )
 
     async def run() -> None:
         await client.solve("https://x")
@@ -182,12 +197,14 @@ def test_require_httpx_succeeds_when_installed():
     # httpx is installed in our test env (it's a transitive dep of pytest
     # for the async test runner on this project)
     from agent_env_core.browser.flare_solverr import require_httpx
+
     require_httpx()  # should not raise
 
 
 # ----------------------------------------------------------------------
 # Test helpers
 # ----------------------------------------------------------------------
+
 
 def _run_async(coro):
     """Run an async coroutine to completion using asyncio.run.
@@ -197,4 +214,43 @@ def _run_async(coro):
     is the cleanest approach.
     """
     import asyncio
+
     return asyncio.run(coro)
+
+
+# ----------------------------------------------------------------------
+# Live integration test
+# ----------------------------------------------------------------------
+# This test is opt-in via the FLARESOLVERR_LIVE_TEST=1 env var. When set,
+# it requires a real FlareSolverr container reachable at FLARESOLVERR_URL
+# (defaults to http://localhost:8191). It exercises the *real* Cloudflare
+# bypass against https://nowsecure.nl — this is the production code path,
+# not a mocked one. CI runs this in the flaresolverr-integration job.
+
+LIVE_TEST = os.environ.get("FLARESOLVERR_LIVE_TEST") == "1"
+
+
+@pytest.mark.skipif(
+    not LIVE_TEST,
+    reason="set FLARESOLVERR_LIVE_TEST=1 to run; requires a real FlareSolverr container",
+)
+def test_live_bypass_against_nowsecure_nl() -> None:
+    base_url = os.environ.get("FLARESOLVERR_URL", "http://localhost:8191")
+    timeout_sec = float(os.environ.get("FLARESOLVERR_TIMEOUT_SEC", "90"))
+
+    async def _run() -> None:
+        async with FlareSolverrClient(base_url=base_url, timeout_sec=timeout_sec) as client:
+            sol = await client.solve("https://nowsecure.nl")
+        assert sol.status == 200, f"expected 200, got {sol.status}"
+        assert sol.url, "no final url"
+        assert sol.user_agent, "no user agent"
+        cf_cookie = next((c for c in sol.cookies if c.name == "cf_clearance"), None)
+        assert cf_cookie is not None, f"no cf_clearance in {len(sol.cookies)} cookies"
+        assert len(cf_cookie.value) > 50, "cf_clearance value suspiciously short"
+        # The Playwright cookie shape must be valid.
+        pw_cookies = sol.to_playwright_cookies()
+        assert pw_cookies, "no playwright cookies produced"
+        for c in pw_cookies:
+            assert "name" in c and "value" in c and "domain" in c
+
+    _run_async(_run())

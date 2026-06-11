@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -117,10 +117,8 @@ class FlareSolverrClient:
         timeout_sec: float | None = None,
         session: str | None = None,
     ) -> None:
-        self._base_url = (
-            base_url
-            or os.environ.get("FLARESOLVERR_URL", DEFAULT_BASE_URL)
-        ).rstrip("/")
+        resolved_base = base_url or os.environ.get("FLARESOLVERR_URL") or DEFAULT_BASE_URL
+        self._base_url = resolved_base.rstrip("/")
         self._timeout_sec = (
             timeout_sec
             if timeout_sec is not None
@@ -130,7 +128,7 @@ class FlareSolverrClient:
         self._owns_client = True
         self._http: httpx.AsyncClient | None = None
 
-    async def __aenter__(self) -> "FlareSolverrClient":
+    async def __aenter__(self) -> FlareSolverrClient:
         self._http = httpx.AsyncClient(
             base_url=self._base_url,
             timeout=self._timeout_sec,
@@ -167,7 +165,7 @@ class FlareSolverrClient:
                 f"FlareSolverr returned HTTP {exc.response.status_code}.",
                 "Check FlareSolverr logs: docker logs flaresolverr",
             ) from exc
-        return response.json()
+        return cast("dict[str, Any]", response.json())
 
     async def health(self) -> bool:
         """Return True if FlareSolverr is reachable and responsive."""
@@ -183,7 +181,7 @@ class FlareSolverrClient:
         if resp.status_code != 200:
             return False
         try:
-            payload = resp.json()
+            payload = cast("dict[str, Any]", resp.json())
         except Exception:  # noqa: BLE001 — defensive
             return False
         return payload.get("status") == "ok"

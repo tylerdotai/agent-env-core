@@ -26,4 +26,4 @@ def test_template_matching_returns_json_arrays(tmp_path):
     matches = locate_template(screen_out.getvalue(), str(template), threshold=0.8)
     assert matches
     assert len(matches[0]) == 5
-    assert all(isinstance(value, (int, float)) for value in matches[0])
+    assert all(isinstance(value, int | float) for value in matches[0])

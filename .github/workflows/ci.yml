@@ -1,0 +1,122 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:
+
+# Cancel in-flight runs on the same ref to save runner minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: lint (${{ matrix.os }}, py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install dev tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: ruff
+        run: ruff check .
+      - name: ruff format check
+        run: ruff format --check .
+      - name: mypy
+        run: mypy src
+
+  test:
+    name: test (${{ matrix.os }}, py${{ matrix.python-version }}, ${{ matrix.extra }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.11", "3.12"]
+        extra:
+          - terminal
+          - browser
+          - desktop
+          - flare-solverr
+          - all
+        include:
+          # Only run "all" on linux+mac to keep Windows runner time down.
+          - os: windows-latest
+            extra: all
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[${{ matrix.extra }},dev]"
+      - name: Install Playwright browsers (linux/mac only)
+        if: matrix.os != 'windows-latest' && (matrix.extra == 'browser' || matrix.extra == 'all')
+        run: python -m playwright install --with-deps chromium
+      - name: Run tests
+        env:
+          CI: "true"
+        run: pytest -q --tb=short --maxfail=5
+
+  flaresolverr-integration:
+    name: flaresolverr live bypass
+    # Only run on the most common CI platform to keep PR cost low.
+    runs-on: ubuntu-latest
+    # Need chromium to actually exercise the bypass.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install package + Playwright
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[all,dev]"
+          python -m playwright install --with-deps chromium
+      # Boot FlareSolverr as a service container on port 8191.
+      - name: Start FlareSolverr
+        run: |
+          docker run -d --rm --name flaresolverr \
+            -p 8191:8191 \
+            -e LOG_LEVEL=info \
+            ghcr.io/flaresolverr/flaresolverr:latest
+          # Wait for healthcheck.
+          for i in $(seq 1 60); do
+            if curl -fsS -X POST http://localhost:8191/v1 \
+              -H 'Content-Type: application/json' \
+              -d '{"cmd":"sessions.list"}' >/dev/null 2>&1; then
+              echo "FlareSolverr is up after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "FlareSolverr failed to start in 60s"
+          docker logs flaresolverr
+          exit 1
+      - name: Run live FlareSolverr bypass test
+        env:
+          FLARESOLVERR_LIVE_TEST: "1"
+          FLARESOLVERR_URL: "http://localhost:8191"
+        run: |
+          .venv/bin/pytest -q -m "not browser" tests/browser/test_flare_solverr.py::test_live_bypass 2>/dev/null \
+            || pytest -q -m "flare_solverr" tests/browser/test_flare_solverr.py -k "live" --tb=short
+      - name: Stop FlareSolverr
+        if: always()
+        run: docker rm -f flaresolverr || true

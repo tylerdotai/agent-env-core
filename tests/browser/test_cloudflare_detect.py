@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from agent_env_core.browser.cloudflare_detect import (
     detect_from_headers,
     detect_from_text,
@@ -45,9 +43,7 @@ def test_detect_from_url_normal():
 
 
 def test_detect_from_text_cloudflare_challenge():
-    r = detect_from_text(
-        "Checking your browser before accessing example.com.\nPlease wait..."
-    )
+    r = detect_from_text("Checking your browser before accessing example.com.\nPlease wait...")
     assert r.detected is True
     assert "checking your browser" in (r.reason or "").lower()
 
