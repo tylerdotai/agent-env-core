@@ -1,0 +1,56 @@
+# docker-compose.yml — agent_env_core infrastructure
+#
+# Brings up FlareSolverr, the self-hosted Cloudflare/DDoS-GUARD bypass
+# proxy that agent_env_core.browser.browser_navigate_and_render can
+# route through when FLARESOLVERR_AUTO_BYPASS=1 is set in the agent env.
+#
+# Usage:
+#   docker compose up -d
+#   curl http://localhost:8191/health   # verify
+#   docker compose logs -f flaresolverr # inspect
+#   docker compose down                 # stop
+#
+# Resources:
+#   - Image:    ghcr.io/flaresolverr/flaresolverr:latest
+#   - Port:     8191 (default)
+#   - RAM:      ~1-2 GB per concurrent solve (heavy: launches a fresh
+#               Chrome instance for every request without sessions)
+
+services:
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    restart: unless-stopped
+    ports:
+      - "8191:8191"
+    environment:
+      # info is a good default; use debug if you're troubleshooting a solve
+      LOG_LEVEL: ${FLARESOLVERR_LOG_LEVEL:-info}
+      # Captcha solvers (optional, off by default). FlareSolverr can use
+      # external services for hCaptcha/recaptcha. See:
+      # https://github.com/FlareSolverr/FlareSolverr#captcha-solver
+      CAPTCHA_SOLVER: ${FLARESOLVERR_CAPTCHA_SOLVER:-}
+      # Uncomment and set values to enable a captcha solver:
+      # HCAPTCHA_SOLVER_API_KEY: ${HCAPTCHA_SOLVER_API_KEY:-}
+      # RECAPTCHA_SOLVER_API_KEY: ${RECAPTCHA_SOLVER_API_KEY:-}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8191/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s   # FlareSolverr takes ~20s to start Chrome on first boot
+    # Cap memory so a runaway solve can't OOM the host
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+    # macOS: if /etc/timezone is read-only in your container, this is fine.
+    # Linux hosts: uncomment the user namespace mapping if you hit perm errors.
+    # user: "1000:1000"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

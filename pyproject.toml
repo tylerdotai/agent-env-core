@@ -36,8 +36,11 @@ desktop = [
   "python-xlib==0.33; platform_system == 'Linux'"
 ]
 terminal = []
+flare-solverr = [
+  "httpx==0.28.1",
+]
 all = [
-  "agent-env-core[browser,desktop,terminal]"
+  "agent-env-core[browser,desktop,terminal,flare-solverr]"
 ]
 dev = [
   "pytest==8.3.4",
@@ -57,6 +60,7 @@ markers = [
   "browser: tests requiring Playwright and installed browser binaries",
   "desktop: tests requiring a graphical desktop/display server",
   "terminal: tests for terminal command execution",
+  "flare-solverr: tests requiring a running FlareSolverr container or mocked HTTP",
   "smoke: package-level smoke tests"
 ]
 
